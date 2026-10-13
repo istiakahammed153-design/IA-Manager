@@ -32,10 +32,30 @@ jobs:
 
       - name: Build debug APK
         run: |
+          set -o pipefail
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
-      - uses: actions/upload-artifact@v4
+      - name: Show errors summary
+        if: failure()
+        run: |
+          {
+            echo '### Build errors'
+            echo '```'
+            grep -E '^e: ' build.log | head -n 60 || true
+            grep -A 8 'What went wrong' build.log | head -n 30 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: IAManager-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
