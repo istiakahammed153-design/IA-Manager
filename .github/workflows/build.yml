@@ -11,14 +11,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unzip project
+      - name: Prepare project
         run: |
-          ZIP=$(ls *.zip | head -n 1)
-          echo "Using zip: $ZIP"
-          mkdir -p project
-          unzip -q "$ZIP" -d project
-          SETTINGS=$(find project -name settings.gradle.kts | head -n 1)
-          echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+          if [ -f settings.gradle.kts ]; then
+            echo "Project files found in repo root"
+            echo "PROJECT_DIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          else
+            ZIP=$(ls *.zip 2>/dev/null | head -n 1)
+            if [ -z "$ZIP" ]; then
+              echo "::error::No .zip file found in the repository root"
+              exit 1
+            fi
+            SIZE=$(stat -c%s "$ZIP")
+            echo "Using zip: $ZIP ($SIZE bytes)"
+            if ! unzip -tq "$ZIP" > /dev/null 2>&1; then
+              echo "::error::$ZIP is corrupted or incomplete ($SIZE bytes). Please download it again and re-upload."
+              exit 1
+            fi
+            mkdir -p project
+            unzip -q "$ZIP" -d project
+            SETTINGS=$(find project -name settings.gradle.kts | head -n 1)
+            echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+          fi
 
       - uses: actions/setup-java@v4
         with:
@@ -30,11 +44,11 @@ jobs:
           gradle-version: '8.9'
           cache-disabled: true
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           set -o pipefail
           cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          gradle assembleRelease --no-daemon --console=plain 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
       - name: Show errors summary
         if: failure()
@@ -48,7 +62,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload full build log
-        if: always()
+        if: always() && hashFiles('build.log') != ''
         uses: actions/upload-artifact@v4
         with:
           name: build-log
@@ -58,4 +72,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: IAManager-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/*.apk
